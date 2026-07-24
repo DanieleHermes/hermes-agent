@@ -160,6 +160,8 @@ When an auxiliary task is configured with provider `main`, Hermes resolves that 
 
 Hermes supports a configured fallback provider chain — a list of `(provider, model)` entries tried in order when the primary model encounters errors. The legacy single-pair `fallback_model` dict is still accepted for back-compat (and migrated on first write).
 
+Route authority is intentionally limited to explicit session/profile/job config, auxiliary task config, delegation config, and the ordered fallback chain. Hermes does not expose plugin-controlled per-turn or per-task model/provider selection. See [Model Routing Policy](./model-routing-policy) for the boundary and recommended patterns.
+
 ### How it works internally
 
 1. **Storage**: `AIAgent.__init__` stores the `fallback_model` dict and sets `_fallback_activated = False`.
@@ -202,5 +204,6 @@ Fallback behavior is exercised across several suites:
 ## Related docs
 
 - [Agent Loop Internals](./agent-loop.md)
+- [Model Routing Policy](./model-routing-policy)
 - [ACP Internals](./acp-internals.md)
 - [Context Compression & Prompt Caching](./context-compression-and-caching.md)
