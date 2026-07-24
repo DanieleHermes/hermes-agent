@@ -162,8 +162,8 @@ def test_model_autorouter_applies_visible_startup_route(tmp_path, monkeypatch):
                         "reason": "code workspace",
                     },
                     "balanced": {
-                        "provider": "openrouter",
-                        "model": "anthropic/claude-sonnet-4.6",
+                        "provider": "openai-codex",
+                        "model": "gpt-5.6-sol-pro",
                     },
                 },
             },
@@ -220,8 +220,8 @@ def test_model_autorouter_helper_uses_named_default_when_no_predicate_matches(tm
                             "when": {"cwd_has": ["missing.file"]},
                         },
                         "balanced": {
-                            "provider": "openrouter",
-                            "model": "anthropic/claude-sonnet-4.6",
+                            "provider": "openai-codex",
+                            "model": "gpt-5.6-sol-pro",
                         },
                     },
                 }
@@ -233,8 +233,8 @@ def test_model_autorouter_helper_uses_named_default_when_no_predicate_matches(tm
 
     assert decision is not None
     assert decision.name == "balanced"
-    assert decision.provider == "openrouter"
-    assert decision.model == "anthropic/claude-sonnet-4.6"
+    assert decision.provider == "openai-codex"
+    assert decision.model == "gpt-5.6-sol-pro"
 
 
 def test_model_autorouter_helper_prefers_matching_predicate_over_early_default(tmp_path):
@@ -250,8 +250,8 @@ def test_model_autorouter_helper_prefers_matching_predicate_over_early_default(t
                     "default_route": "balanced",
                     "routes": {
                         "balanced": {
-                            "provider": "openrouter",
-                            "model": "anthropic/claude-sonnet-4.6",
+                            "provider": "openai-codex",
+                            "model": "gpt-5.6-sol-pro",
                         },
                         "coding": {
                             "provider": "openai-codex",
@@ -270,6 +270,52 @@ def test_model_autorouter_helper_prefers_matching_predicate_over_early_default(t
     assert decision.name == "coding"
     assert decision.provider == "openai-codex"
     assert decision.model == "gpt-5.6-terra-pro"
+
+
+def test_model_autorouter_helper_rejects_non_codex_route(tmp_path):
+    from hermes_cli.model_autorouter import resolve_model_autorouter
+
+    with pytest.raises(ValueError, match="openai-codex"):
+        resolve_model_autorouter(
+            {
+                "model": {
+                    "autorouter": {
+                        "enabled": True,
+                        "routes": {
+                            "balanced": {
+                                "provider": "openrouter",
+                                "model": "anthropic/claude-sonnet-4.6",
+                            }
+                        },
+                    }
+                }
+            },
+            cwd=tmp_path,
+            platform="cli",
+        )
+
+
+def test_model_autorouter_helper_rejects_non_56_pro_model(tmp_path):
+    from hermes_cli.model_autorouter import resolve_model_autorouter
+
+    with pytest.raises(ValueError, match="gpt-5.6"):
+        resolve_model_autorouter(
+            {
+                "model": {
+                    "autorouter": {
+                        "enabled": True,
+                        "routes": {
+                            "balanced": {
+                                "provider": "openai-codex",
+                                "model": "gpt-5",
+                            }
+                        },
+                    }
+                }
+            },
+            cwd=tmp_path,
+            platform="cli",
+        )
 
 
 def test_runtime_resolution_failure_is_not_sticky(monkeypatch):

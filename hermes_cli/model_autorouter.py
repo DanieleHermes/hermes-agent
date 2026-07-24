@@ -13,6 +13,16 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 
+AUTOROUTER_PROVIDER = "openai-codex"
+AUTOROUTER_MODELS = frozenset(
+    {
+        "gpt-5.6-terra-pro",
+        "gpt-5.6-sol-pro",
+        "gpt-5.6-luna-pro",
+    }
+)
+
+
 @dataclass(frozen=True)
 class AutorouterDecision:
     """Resolved autorouter route."""
@@ -112,6 +122,30 @@ def _matches_when(
     return True
 
 
+def _route_decision(
+    name: str,
+    route: Mapping[str, Any],
+    *,
+    reason: str,
+) -> AutorouterDecision | None:
+    provider = str(route.get("provider") or AUTOROUTER_PROVIDER).strip()
+    model = str(route.get("model") or route.get("default") or "").strip()
+    if not model:
+        return None
+    if provider != AUTOROUTER_PROVIDER:
+        raise ValueError(
+            f"model.autorouter.routes.{name} uses provider {provider!r}; "
+            f"autorouter routes are limited to {AUTOROUTER_PROVIDER!r}"
+        )
+    if model not in AUTOROUTER_MODELS:
+        allowed = ", ".join(sorted(AUTOROUTER_MODELS))
+        raise ValueError(
+            f"model.autorouter.routes.{name} uses unsupported model {model!r}; "
+            f"allowed models: {allowed}"
+        )
+    return AutorouterDecision(name=name, provider=provider, model=model, reason=reason)
+
+
 def resolve_model_autorouter(
     config: Mapping[str, Any],
     *,
@@ -136,8 +170,12 @@ def resolve_model_autorouter(
                 when:
                   cwd_has_any: [.git, pyproject.toml, package.json]
               balanced:
-                provider: openrouter
-                model: anthropic/claude-sonnet-4.6
+                provider: openai-codex
+                model: gpt-5.6-sol-pro
+
+    Routes are intentionally constrained to the OpenAI Codex 5.6 Pro family:
+    ``gpt-5.6-terra-pro``, ``gpt-5.6-sol-pro``, and
+    ``gpt-5.6-luna-pro``.
 
     Explicit CLI/session choices win.  That keeps the autorouter an
     operator-visible session-start default, not a hidden per-call override.
@@ -162,6 +200,8 @@ def resolve_model_autorouter(
     routes = _route_items(router_cfg.get("routes"))
     if not routes:
         return None
+    for name, route in routes:
+        _route_decision(name, route, reason="validate model.autorouter route")
 
     default_route_name = str(router_cfg.get("default_route") or router_cfg.get("default") or "").strip()
     default_candidate: tuple[str, Mapping[str, Any]] | None = None
@@ -174,26 +214,17 @@ def resolve_model_autorouter(
         if "when" not in route:
             continue
         if _matches_when(route.get("when"), cwd=cwd_path, platform=platform, enabled_toolsets=enabled_toolsets):
-            provider = str(route.get("provider") or "").strip()
-            model = str(route.get("model") or route.get("default") or "").strip()
-            if provider or model:
-                return AutorouterDecision(
-                    name=name,
-                    provider=provider,
-                    model=model,
-                    reason=str(route.get("reason") or f"matched model.autorouter.routes.{name}"),
-                )
+            return _route_decision(
+                name,
+                route,
+                reason=str(route.get("reason") or f"matched model.autorouter.routes.{name}"),
+            )
 
     if default_candidate is None:
         return None
     name, route = default_candidate
-    provider = str(route.get("provider") or "").strip()
-    model = str(route.get("model") or route.get("default") or "").strip()
-    if not provider and not model:
-        return None
-    return AutorouterDecision(
-        name=name,
-        provider=provider,
-        model=model,
+    return _route_decision(
+        name,
+        route,
         reason=str(route.get("reason") or f"using model.autorouter default route {name}"),
     )
