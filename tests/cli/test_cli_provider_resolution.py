@@ -140,6 +140,138 @@ def test_hermes_cli_init_does_not_eagerly_resolve_runtime_provider(monkeypatch):
     assert calls["count"] == 0
 
 
+def test_model_autorouter_applies_visible_startup_route(tmp_path, monkeypatch):
+    cli = _import_cli()
+    (tmp_path / ".git").mkdir()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
+    monkeypatch.setitem(
+        cli.CLI_CONFIG,
+        "model",
+        {
+            "provider": "openrouter",
+            "default": "anthropic/claude-haiku-4.5",
+            "autorouter": {
+                "enabled": True,
+                "default_route": "balanced",
+                "routes": {
+                    "coding": {
+                        "provider": "openai-codex",
+                        "model": "gpt-5.6-terra-pro",
+                        "when": {"cwd_has_any": [".git", "pyproject.toml", "package.json"]},
+                        "reason": "code workspace",
+                    },
+                    "balanced": {
+                        "provider": "openrouter",
+                        "model": "anthropic/claude-sonnet-4.6",
+                    },
+                },
+            },
+        },
+    )
+
+    shell = cli.HermesCLI(compact=True, max_turns=1)
+
+    assert shell.model == "gpt-5.6-terra-pro"
+    assert shell.requested_provider == "openai-codex"
+    assert shell._model_is_default is False
+    assert shell._model_autorouter_decision.name == "coding"
+
+
+def test_model_autorouter_does_not_override_explicit_cli_route(tmp_path, monkeypatch):
+    cli = _import_cli()
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("HERMES_INFERENCE_PROVIDER", raising=False)
+    monkeypatch.setitem(
+        cli.CLI_CONFIG,
+        "model",
+        {
+            "provider": "openrouter",
+            "default": "anthropic/claude-haiku-4.5",
+            "autorouter": {
+                "enabled": True,
+                "routes": [
+                    {"name": "coding", "provider": "openai-codex", "model": "gpt-5.6-terra-pro"}
+                ],
+            },
+        },
+    )
+
+    shell = cli.HermesCLI(model="manual-model", provider="manual-provider", compact=True, max_turns=1)
+
+    assert shell.model == "manual-model"
+    assert shell.requested_provider == "manual-provider"
+    assert shell._model_autorouter_decision is None
+
+
+def test_model_autorouter_helper_uses_named_default_when_no_predicate_matches(tmp_path):
+    from hermes_cli.model_autorouter import resolve_model_autorouter
+
+    decision = resolve_model_autorouter(
+        {
+            "model": {
+                "autorouter": {
+                    "enabled": True,
+                    "default_route": "balanced",
+                    "routes": {
+                        "coding": {
+                            "provider": "openai-codex",
+                            "model": "gpt-5.6-terra-pro",
+                            "when": {"cwd_has": ["missing.file"]},
+                        },
+                        "balanced": {
+                            "provider": "openrouter",
+                            "model": "anthropic/claude-sonnet-4.6",
+                        },
+                    },
+                }
+            }
+        },
+        cwd=tmp_path,
+        platform="cli",
+    )
+
+    assert decision is not None
+    assert decision.name == "balanced"
+    assert decision.provider == "openrouter"
+    assert decision.model == "anthropic/claude-sonnet-4.6"
+
+
+def test_model_autorouter_helper_prefers_matching_predicate_over_early_default(tmp_path):
+    from hermes_cli.model_autorouter import resolve_model_autorouter
+
+    (tmp_path / "package.json").write_text("{}", encoding="utf-8")
+
+    decision = resolve_model_autorouter(
+        {
+            "model": {
+                "autorouter": {
+                    "enabled": True,
+                    "default_route": "balanced",
+                    "routes": {
+                        "balanced": {
+                            "provider": "openrouter",
+                            "model": "anthropic/claude-sonnet-4.6",
+                        },
+                        "coding": {
+                            "provider": "openai-codex",
+                            "model": "gpt-5.6-terra-pro",
+                            "when": {"cwd_has_any": ["package.json"]},
+                        },
+                    },
+                }
+            }
+        },
+        cwd=tmp_path,
+        platform="cli",
+    )
+
+    assert decision is not None
+    assert decision.name == "coding"
+    assert decision.provider == "openai-codex"
+    assert decision.model == "gpt-5.6-terra-pro"
+
+
 def test_runtime_resolution_failure_is_not_sticky(monkeypatch):
     cli = _import_cli()
     calls = {"count": 0}

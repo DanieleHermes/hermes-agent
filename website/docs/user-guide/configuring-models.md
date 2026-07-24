@@ -114,6 +114,28 @@ model:
   api_mode: chat_completions
 ```
 
+**Startup autorouter (optional):**
+```yaml
+model:
+  provider: openrouter                  # used when autorouter is off or no route matches
+  default: anthropic/claude-haiku-4.5
+  autorouter:
+    enabled: true
+    default_route: balanced
+    routes:
+      coding:
+        provider: openai-codex
+        model: gpt-5.6-terra-pro
+        when:
+          cwd_has_any: [.git, pyproject.toml, package.json]
+        reason: code workspace
+      balanced:
+        provider: openrouter
+        model: anthropic/claude-sonnet-4.6
+```
+
+The autorouter is a **new-session startup default**, not a hidden per-prompt router. CLI flags, `/model`, dashboard session overrides, `HERMES_INFERENCE_PROVIDER`, cron job model pins, and delegation pins still win. The current matcher is intentionally deterministic: it can match by platform, enabled toolsets, and files/directories present in the current working directory (`cwd_has` / `cwd_has_any`). It does not inspect the user's prompt or let plugins override the route for a turn.
+
 **Auxiliary override (example — vision on gemini-flash):**
 ```yaml
 auxiliary:

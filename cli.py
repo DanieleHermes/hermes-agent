@@ -4004,9 +4004,26 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         # authoritative.  This avoids conflicts in multi-agent setups where
         # env vars would stomp each other.
         _model_config = CLI_CONFIG.get("model", {})
-        _config_model = (_model_config.get("default") or _model_config.get("model") or "") if isinstance(_model_config, dict) else (_model_config or "")
+        _model_config_dict = _model_config if isinstance(_model_config, dict) else {}
+        _config_model = (_model_config_dict.get("default") or _model_config_dict.get("model") or "") if isinstance(_model_config, dict) else (_model_config or "")
         _DEFAULT_CONFIG_MODEL = ""
-        self.model = model or _config_model or _DEFAULT_CONFIG_MODEL
+        _autoroute_decision = None
+        if not model and not provider and not os.getenv("HERMES_INFERENCE_PROVIDER"):
+            try:
+                from hermes_cli.model_autorouter import resolve_model_autorouter
+
+                _autoroute_decision = resolve_model_autorouter(
+                    CLI_CONFIG,
+                    explicit_model=bool(model),
+                    explicit_provider=bool(provider),
+                    cwd=os.getcwd(),
+                    platform="cli",
+                    enabled_toolsets=toolsets,
+                )
+            except Exception as exc:
+                logger.warning("Model autorouter config ignored: %s", exc)
+        self._model_autorouter_decision = _autoroute_decision
+        self.model = model or (_autoroute_decision.model if _autoroute_decision and _autoroute_decision.model else "") or _config_model or _DEFAULT_CONFIG_MODEL
         # A ``moa:<preset>`` model string selects the MoA virtual provider in
         # one shot (parity with interactive ``/moa`` and the model picker). Do
         # this before provider resolution so ``-Q -m moa:<preset>`` routes
@@ -4039,7 +4056,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         # A config model that matches the global fallback is NOT considered an
         # explicit choice — the user just never changed it.  But a config model
         # like "gpt-5.3-codex" IS explicit and must be preserved.
-        self._model_is_default = not model and (
+        self._model_is_default = (not model and not _autoroute_decision) and (
             not _config_model or _config_model == _DEFAULT_CONFIG_MODEL
         )
 
@@ -4050,7 +4067,8 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         self.requested_provider = (
             _moa_provider_override
             or provider
-            or CLI_CONFIG["model"].get("provider")
+            or (_autoroute_decision.provider if _autoroute_decision and _autoroute_decision.provider else "")
+            or _model_config_dict.get("provider")
             or os.getenv("HERMES_INFERENCE_PROVIDER")
             or "auto"
         )
@@ -4061,7 +4079,7 @@ class HermesCLI(CLIAgentSetupMixin, CLICommandsMixin, CLIBillingMixin):
         self.acp_args: list[str] = []
         self.base_url = (
             base_url
-            or CLI_CONFIG["model"].get("base_url", "")
+            or _model_config_dict.get("base_url", "")
             or os.getenv("OPENROUTER_BASE_URL", "")
         ) or None
         # Match key to resolved base_url: OpenRouter URL → prefer OPENROUTER_API_KEY,
